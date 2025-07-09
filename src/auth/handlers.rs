@@ -54,14 +54,14 @@ async fn register_handler(
     Json(payload): Json<AuthPayload>,
 ) -> Result<Json<TokenResponse>, AppError> {
     let hash = hash_password(&payload.password)?;
-    let user = User::new(payload.username, hash);
+    let user = User::new(&payload.username, &hash);
 
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
-        user.id,
-        user.username,
-        user.password_hash
     )
+        .bind(&user.id)
+        .bind(&payload.username)
+        .bind(&user.password_hash)
     .execute(&pool)
     .await?;
 

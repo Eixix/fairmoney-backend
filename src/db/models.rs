@@ -9,11 +9,11 @@ pub struct User {
 }
 
 impl User {
-    pub fn new(username: String, password_hash: String) -> Self {
+    pub fn new(username: &str, password_hash: &str) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
-            username,
-            password_hash,
+            username: username.to_string(),
+            password_hash: password_hash.to_string(),
         }
     }
 }
