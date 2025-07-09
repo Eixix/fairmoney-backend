@@ -7,8 +7,14 @@ pub enum AppError {
     #[error("Unauthorized: {0}")]
     Unauthorized(String),
 
-    #[error("JWT error: {0}")]
+    #[error(transparent)]
     JwtError(#[from] jsonwebtoken::errors::Error),
+
+    #[error(transparent)]
+    SqlxError(#[from] sqlx::Error),
+
+    #[error("Password hashing error")]
+    ArgonError(String),
 }
 
 impl AppError {
@@ -19,11 +25,10 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        match self {
-            AppError::Unauthorized(msg) => {
-                (StatusCode::UNAUTHORIZED, msg).into_response()
-            }
-            AppError::JwtError(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-        }
+        let status = match self {
+            AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        (status, self.to_string()).into_response()
     }
 }
