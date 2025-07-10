@@ -8,6 +8,7 @@ mod config;
 mod db;
 mod errors;
 mod routes;
+mod transactions;
 
 #[tokio::main]
 async fn main() {

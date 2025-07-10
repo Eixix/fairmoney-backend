@@ -1,9 +1,9 @@
 use crate::auth::jwt::create_jwt;
 use crate::db::models::User;
 use crate::errors::AppError;
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
+use argon2::password_hash::rand_core::OsRng;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::routing::post;
 use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
@@ -56,21 +56,19 @@ async fn register_handler(
     let hash = hash_password(&payload.password)?;
     let user = User::new(&payload.username, &hash);
 
-    sqlx::query(
-        "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
-    )
+    sqlx::query("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)")
         .bind(&user.id)
         .bind(&payload.username)
         .bind(&user.password_hash)
-    .execute(&pool)
-    .await?;
+        .execute(&pool)
+        .await?;
 
     let token = create_jwt(user.id)?;
     Ok(Json(TokenResponse { token }))
 }
 
 fn hash_password(password: &str) -> Result<String, AppError> {
-    let mut salt =SaltString::generate(&mut OsRng);
+    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let password_hash = argon2
         .hash_password(password.as_bytes(), &salt)
