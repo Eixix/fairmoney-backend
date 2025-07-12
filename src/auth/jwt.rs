@@ -1,26 +1,41 @@
 use crate::errors::AppError;
-use axum::extract::FromRequestParts;
-use axum::http::header::AUTHORIZATION;
-use axum::http::request::Parts;
+use actix_web::http::header::AUTHORIZATION;
+use actix_web::HttpRequest;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use std::env;
+use chrono::{Duration, Utc};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub uid: String,
-    exp: usize,
+    pub user_id: String,
+    pub exp: i64,
 }
 
-pub fn create_jwt(user_id: String) -> Result<String, jsonwebtoken::errors::Error> {
+impl Claims {
+    pub fn from_request(req: &HttpRequest) -> Result<Self, AppError> {
+        let auth_header = req
+            .headers()
+            .get(AUTHORIZATION)
+            .and_then(|h| h.to_str().ok())
+            .ok_or_else(|| AppError::Unauthorized("Missing Authorization header".to_string()))?;
+
+        let token = auth_header
+            .strip_prefix("Bearer ")
+            .ok_or_else(|| AppError::Unauthorized("Invalid Authorization header format".to_string()))?;
+
+        validate_jwt(token)
+            .map_err(|_| AppError::Unauthorized("Invalid or expired token".to_string()))
+    }
+}
+
+pub fn create_jwt(user_id: &str) -> Result<String, AppError> {
     let secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
-    let expiration = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as usize;
+    let expiration = Utc::now() + Duration::hours(24);
+    
     let claims = Claims {
-        uid: user_id,
-        exp: expiration,
+        user_id: user_id.to_string(),
+        exp: expiration.timestamp(),
     };
 
     encode(
@@ -28,6 +43,7 @@ pub fn create_jwt(user_id: String) -> Result<String, jsonwebtoken::errors::Error
         &claims,
         &EncodingKey::from_secret(secret.as_ref()),
     )
+    .map_err(|e| AppError::JwtError(e.to_string()))
 }
 
 pub fn validate_jwt(jwt: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
@@ -38,30 +54,4 @@ pub fn validate_jwt(jwt: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
         &Validation::default(),
     )?;
     Ok(token_data.claims)
-}
-
-pub struct AuthBearer(pub Claims);
-
-impl<S> FromRequestParts<S> for AuthBearer
-where
-    S: Send + Sync,
-{
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let auth_header = parts
-            .headers
-            .get(AUTHORIZATION)
-            .and_then(|h| h.to_str().ok());
-
-        match auth_header.and_then(|h| h.strip_prefix("Bearer")) {
-            Some(bearer) => match validate_jwt(&*bearer.replace(" ", "")) {
-                Ok(claims) => Ok(AuthBearer(claims)),
-                Err(_) => Err(AppError::Unauthorized("Unauthorized JWT-token".to_string())),
-            },
-            None => Err(AppError::Unauthorized(
-                "Missing or invalid Authorization header".to_string(),
-            )),
-        }
-    }
 }

@@ -1,70 +1,122 @@
-use crate::auth::jwt::create_jwt;
-use crate::db::models::User;
+use actix_web::{web, HttpResponse, HttpRequest};
+use crate::auth::jwt::{create_jwt, Claims};
+use crate::db::models::{User, CreateUserRequest, LoginRequest, LoginResponse};
 use crate::errors::AppError;
 use argon2::password_hash::SaltString;
 use argon2::password_hash::rand_core::OsRng;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use axum::routing::post;
-use axum::{Extension, Json, Router};
-use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
-#[derive(Deserialize)]
-pub struct AuthPayload {
-    username: String,
-    password: String,
-}
+/// Login with email and password
+#[utoipa::path(
+    post,
+    path = "/api/auth/login",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Login successful", body = LoginResponse),
+        (status = 401, description = "Invalid credentials")
+    ),
+    tag = "Authentication"
+)]
+pub async fn login(
+    pool: web::Data<SqlitePool>,
+    login_data: web::Json<LoginRequest>,
+) -> Result<HttpResponse, AppError> {
+    let user = sqlx::query_as_unchecked!(
+        User,
+        "SELECT id, username, email, password_hash, created_at FROM users WHERE email = ?",
+        login_data.email
+    )
+    .fetch_optional(pool.get_ref())
+    .await?
+    .ok_or_else(|| AppError::Unauthorized("Invalid email or password".to_string()))?;
 
-#[derive(Serialize)]
-pub struct TokenResponse {
-    token: String,
-}
-
-pub fn auth_routes() -> Router {
-    Router::new()
-        .route("/login", post(login_handler))
-        .route("/register", post(register_handler))
-}
-
-async fn login_handler(
-    Extension(pool): Extension<SqlitePool>,
-    Json(payload): Json<AuthPayload>,
-) -> Result<Json<TokenResponse>, AppError> {
-    let record = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = ?")
-        .bind(&payload.username)
-        .fetch_optional(&pool)
-        .await?;
-
-    if let Some(user) = record {
-        if verify_password(&payload.password, &user.password_hash)? {
-            let token = create_jwt(user.id)?;
-            Ok(Json(TokenResponse { token }))
-        } else {
-            Err(AppError::Unauthorized(
-                "Invalid username or password".to_string(),
-            ))
-        }
+    if verify_password(&login_data.password, &user.password_hash)? {
+        let token = create_jwt(&user.id)?;
+        let response = LoginResponse { token, user };
+        Ok(HttpResponse::Ok().json(response))
     } else {
-        Err(AppError::Unauthorized("User not found".to_string()))
+        Err(AppError::Unauthorized("Invalid email or password".to_string()))
     }
 }
 
-async fn register_handler(
-    Extension(pool): Extension<SqlitePool>,
-    Json(payload): Json<AuthPayload>,
-) -> Result<Json<TokenResponse>, AppError> {
-    let hash = hash_password(&payload.password)?;
-    let user = User::new(&payload.username, &hash);
+/// Register a new user
+#[utoipa::path(
+    post,
+    path = "/api/auth/register",
+    request_body = CreateUserRequest,
+    responses(
+        (status = 201, description = "User created successfully", body = LoginResponse),
+        (status = 400, description = "User already exists")
+    ),
+    tag = "Authentication"
+)]
+pub async fn register(
+    pool: web::Data<SqlitePool>,
+    user_data: web::Json<CreateUserRequest>,
+) -> Result<HttpResponse, AppError> {
+    // Check if user already exists
+    let count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM users WHERE email = ? OR username = ?",
+    )
+    .bind(&user_data.email)
+    .bind(&user_data.username)
+    .fetch_one(pool.get_ref())
+    .await?;
 
-    sqlx::query("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)")
-        .bind(&user.id)
-        .bind(&payload.username)
-        .bind(&user.password_hash)
-        .execute(&pool)
-        .await?;
+    if count.0 > 0 {
+        return Err(AppError::BadRequest("User with this email or username already exists".to_string()));
+    }
 
-    let token = create_jwt(user.id)?;
-    Ok(Json(TokenResponse { token }))
+    let hash = hash_password(&user_data.password)?;
+    let user = User::new(&user_data.username, &user_data.email, &hash);
+
+    sqlx::query!(
+        "INSERT INTO users (id, username, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+        user.id,
+        user.username,
+        user.email,
+        user.password_hash,
+        user.created_at
+    )
+    .execute(pool.get_ref())
+    .await?;
+
+    let token = create_jwt(&user.id)?;
+    let response = LoginResponse { token, user };
+    Ok(HttpResponse::Created().json(response))
+}
+
+/// Get current user information
+#[utoipa::path(
+    get,
+    path = "/api/auth/me",
+    security(
+        ("bearer_auth" = [])
+    ),
+    responses(
+        (status = 200, description = "User information", body = User),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "User not found")
+    ),
+    tag = "Authentication"
+)]
+pub async fn me(
+    pool: web::Data<SqlitePool>,
+    req: HttpRequest,
+) -> Result<HttpResponse, AppError> {
+    let claims = Claims::from_request(&req)?;
+    
+    let user = sqlx::query_as_unchecked!(
+        User,
+        "SELECT id, username, email, password_hash, created_at FROM users WHERE id = ?",
+        claims.user_id
+    )
+    .fetch_optional(pool.get_ref())
+    .await?
+    .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    Ok(HttpResponse::Ok().json(user))
 }
 
 fn hash_password(password: &str) -> Result<String, AppError> {
