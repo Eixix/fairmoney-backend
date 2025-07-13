@@ -7,8 +7,7 @@ CREATE TABLE users
     id              TEXT PRIMARY KEY, -- UUID as TEXT
     username        TEXT NOT NULL UNIQUE,
     email           TEXT NOT NULL UNIQUE,
-    password_hash   TEXT NOT NULL,
-    created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+    hashed_password TEXT NOT NULL
 );
 
 -- Create groups table with UUID as primary key
@@ -17,7 +16,6 @@ CREATE TABLE groups
     id         TEXT PRIMARY KEY, -- UUID as TEXT
     name       TEXT NOT NULL,
     created_by TEXT NOT NULL,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE CASCADE
 );
 
@@ -26,7 +24,6 @@ CREATE TABLE group_members
 (
     group_id TEXT NOT NULL,
     user_id  TEXT NOT NULL,
-    joined_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (group_id, user_id),
     FOREIGN KEY (group_id) REFERENCES groups (id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE

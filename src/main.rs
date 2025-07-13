@@ -1,121 +1,113 @@
-use actix_cors::Cors;
-use actix_web::{web, App, HttpServer};
-use dotenvy::dotenv;
-use std::env;
-use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
-use utoipa::openapi::{OpenApi as OpenApiDoc, security::{SecurityScheme, HttpAuthScheme, HttpBuilder}};
-use utoipa::Modify;
-
-mod auth;
-mod config;
 mod db;
 mod errors;
-mod groups;
-mod routes;
-mod transactions;
+mod models;
+mod schema;
 
-pub struct SecurityAddon;
+use crate::db::{check_if_user_exists, get_user_by_username, insert_new_user};
+use crate::errors::AppError;
+use crate::models::{RequestRegisterUser, User};
+use actix_web::{error, get, post, web, App, HttpResponse, HttpServer, Responder};
+use argon2::password_hash::rand_core::OsRng;
+use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use diesel::{r2d2, SqliteConnection};
+use uuid::Uuid;
 
-impl Modify for SecurityAddon {
-    fn modify(&self, openapi: &mut OpenApiDoc) {
-        openapi.components = openapi.components.take().map(|mut components| {
-            components.add_security_scheme(
-                "bearer_auth",
-                SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).bearer_format("JWT").build())
-            );
-            components
-        });
-    }
-}
-
-#[derive(OpenApi)]
-#[openapi(
-    paths(
-        auth::handlers::login,
-        auth::handlers::register,
-        auth::handlers::me,
-        groups::handlers::create_group,
-        groups::handlers::get_groups,
-        groups::handlers::get_group,
-        groups::handlers::add_group_member,
-        groups::handlers::remove_group_member,
-        groups::handlers::delete_group,
-        transactions::handlers::create_transaction,
-        transactions::handlers::get_group_transactions,
-        transactions::handlers::get_transaction,
-        transactions::handlers::delete_transaction
-    ),
-    components(
-        schemas(
-            db::models::User,
-            db::models::Group,
-            db::models::GroupMember,
-            db::models::Transaction,
-            db::models::TransactionShare,
-            db::models::CreateUserRequest,
-            db::models::LoginRequest,
-            db::models::LoginResponse,
-            db::models::CreateGroupRequest,
-            db::models::AddGroupMemberByEmailRequest,
-            db::models::CreateTransactionRequest,
-            db::models::TransactionShareRequest,
-            db::models::GroupWithMembers,
-            db::models::TransactionWithShares
-        )
-    ),
-    tags(
-        (name = "Authentication", description = "User authentication endpoints"),
-        (name = "Groups", description = "Group management endpoints"),
-        (name = "Transactions", description = "Transaction management endpoints")
-    ),
-    info(
-        title = "FairMoney API",
-        description = "A complete expense tracking API similar to Tricount or Splitwise",
-        version = "1.0.0",
-        contact(
-            name = "FairMoney",
-            email = "support@fairmoney.com"
-        )
-    ),
-    servers(
-        (url = "http://127.0.0.1:3000", description = "Development server")
-    ),
-    security(
-        ("bearer_auth" = [])
-    ),
-    modifiers(&SecurityAddon)
-)]
-struct ApiDoc;
+type DbPool = r2d2::Pool<r2d2::ConnectionManager<SqliteConnection>>;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    dotenv().ok();
-    env_logger::init();
-
-    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL not set");
-    let pool = db::connect_db(&db_url).await;
-
-    println!("FairMoney API running at http://127.0.0.1:3000");
-    println!("Swagger UI available at http://127.0.0.1:3000/swagger-ui/");
-
+    // connect to SQLite DB
+    let manager = r2d2::ConnectionManager::<SqliteConnection>::new("fairmoney.db");
+    let pool = r2d2::Pool::builder()
+        .build(manager)
+        .expect("database URL should be valid path to SQLite DB file");
     HttpServer::new(move || {
-        let cors = Cors::default()
-            .allow_any_origin()
-            .allow_any_method()
-            .allow_any_header()
-            .max_age(3600);
-
         App::new()
-            .wrap(cors)
             .app_data(web::Data::new(pool.clone()))
-            .configure(routes::config)
-            .service(
-                SwaggerUi::new("/swagger-ui/{_:.*}")
-                    .url("/api-docs/openapi.json", ApiDoc::openapi())
-            )
+            .service(hello)
+            .service(register)
+            .service(login)
     })
-    .bind("127.0.0.1:3000")?
+    .bind(("127.0.0.1", 8080))?
     .run()
     .await
+}
+
+#[get("/")]
+async fn hello() -> impl Responder {
+    HttpResponse::Ok().body("Hello world!")
+}
+
+#[post("/register")]
+async fn register(
+    pool: web::Data<DbPool>,
+    request_user: web::Json<RequestRegisterUser>,
+) -> actix_web::Result<impl Responder> {
+    // Check if user already exists
+    let pool_insert = pool.clone();
+    let user_insert = request_user.clone();
+    let user_already_exists = web::block(move || {
+        let mut conn = pool.get().expect("Failed to get db connection from pool");
+        check_if_user_exists(&mut conn, &*request_user.username)
+    })
+    .await?
+    .map_err(error::ErrorInternalServerError)?;
+
+    if !user_already_exists {
+        // Create user if it does not exist
+        let user = web::block(move || {
+            let mut conn = pool_insert
+                .get()
+                .expect("Failed to get db connection from pool");
+
+            let salt = SaltString::generate(&mut OsRng);
+            let argon2 = Argon2::default();
+            let hashed_pw = argon2
+                .hash_password(user_insert.password.as_bytes(), &salt)
+                .unwrap()
+                .to_string();
+
+            let user_to_register: User = User {
+                uid: Uuid::new_v4().to_string(),
+                username: user_insert.username.to_string(),
+                hashed_password: hashed_pw,
+            };
+            insert_new_user(&mut conn, user_to_register.clone())
+        })
+        .await?
+        .map_err(error::ErrorInternalServerError)?;
+
+        Ok(HttpResponse::Ok().json(user))
+    } else {
+        Err(error::ErrorBadRequest("User already exists"))
+    }
+}
+
+#[post("/login")]
+async fn login(
+    pool: web::Data<DbPool>,
+    request_user: web::Json<RequestRegisterUser>,
+) -> Result<HttpResponse, AppError> {
+    let username = request_user.username.clone();
+    let password = request_user.password.clone();
+
+    let user = web::block(move || -> Result<User, AppError> {
+        let mut conn = pool.get().map_err(|_| AppError::InternalError)?;
+        let user =
+            get_user_by_username(&mut conn, &username).map_err(|_| AppError::UserNotFound)?;
+
+        let parsed_hash =
+            PasswordHash::new(&user.hashed_password).map_err(|_| AppError::InternalError)?;
+
+        Argon2::default()
+            .verify_password(password.as_bytes(), &parsed_hash)
+            .map_err(|_| AppError::WrongPassword)?;
+
+        Ok(user)
+    })
+    .await
+    .map_err(|_| AppError::InternalError)??;
+
+    Ok(HttpResponse::Ok().json(user))
 }

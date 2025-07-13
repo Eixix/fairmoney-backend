@@ -1,56 +1,30 @@
-use actix_web::{HttpResponse, ResponseError};
-use serde_json::json;
+use actix_web::{error::ResponseError, HttpResponse};
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub enum AppError {
-    #[error("Unauthorized: {0}")]
-    Unauthorized(String),
+    #[error("Database error")]
+    DbError(#[from] diesel::result::Error),
 
-    #[error("Forbidden: {0}")]
-    Forbidden(String),
+    #[error("Password verification failed")]
+    PasswordVerifyError(#[from] argon2::password_hash::Error),
 
-    #[error("Not Found: {0}")]
-    NotFound(String),
+    #[error("User not found")]
+    UserNotFound,
 
-    #[error("Bad Request: {0}")]
-    BadRequest(String),
+    #[error("Wrong password")]
+    WrongPassword,
 
-    #[error("JWT Error: {0}")]
-    JwtError(String),
-
-    #[error("SQL Error: {0}")]
-    SqlxError(#[from] sqlx::Error),
-
-    #[error("Password hashing error: {0}")]
-    ArgonError(String),
+    #[error("Internal error")]
+    InternalError,
 }
 
 impl ResponseError for AppError {
     fn error_response(&self) -> HttpResponse {
         match self {
-            AppError::Unauthorized(_) => HttpResponse::Unauthorized().json(json!({
-                "error": "Unauthorized",
-                "message": self.to_string()
-            })),
-            AppError::Forbidden(_) => HttpResponse::Forbidden().json(json!({
-                "error": "Forbidden",
-                "message": self.to_string()
-            })),
-            AppError::NotFound(_) => HttpResponse::NotFound().json(json!({
-                "error": "Not Found",
-                "message": self.to_string()
-            })),
-            AppError::BadRequest(_) => HttpResponse::BadRequest().json(json!({
-                "error": "Bad Request",
-                "message": self.to_string()
-            })),
-            _ => HttpResponse::InternalServerError().json(json!({
-                "error": "Internal Server Error",
-                "message": self.to_string()
-            })),
+            AppError::UserNotFound => HttpResponse::BadRequest().body("User not found"),
+            AppError::WrongPassword => HttpResponse::BadRequest().body("Password is wrong"),
+            _ => HttpResponse::InternalServerError().finish(),
         }
     }
 }
-
-
