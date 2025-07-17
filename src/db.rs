@@ -63,6 +63,7 @@ pub fn insert_new_group(conn: &mut SqliteConnection, name: String) -> QueryResul
     let group = Group {
         uid: uuid::Uuid::new_v4().to_string(),
         group_name: name,
+        created_by: "".to_string(),
     };
 
     diesel::insert_into(groups).values(&group).execute(conn)?;
@@ -113,7 +114,10 @@ pub fn insert_new_transaction(
         amount: new_txn.amount,
         group_id: new_txn.group_id,
         created_by: new_txn.created_by,
-        created_at: new_txn.created_at,
+        created_at: Some(format!(
+            "{}",
+            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
+        )),
     };
 
     diesel::insert_into(transactions)

@@ -13,3 +13,5 @@ thiserror = "2.0.12"
 jsonwebtoken = "9.3.1"
 dotenvy = "0.15.7"
 chrono = "0.4.41"
+utoipa = { version = "5.4.0", features = ["actix_extras"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }

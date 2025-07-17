@@ -1,8 +1,9 @@
 use crate::schema::{group_memberships, groups, transaction_shares, transactions, users};
 use diesel::{Associations, Identifiable, Insertable, Queryable, Selectable};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Serialize, Clone, Debug, Queryable, Identifiable, Selectable, Insertable)]
+#[derive(Serialize, ToSchema, Clone, Debug, Queryable, Identifiable, Selectable, Insertable)]
 #[diesel(primary_key(uid))]
 pub struct User {
     pub uid: String,
@@ -10,14 +11,17 @@ pub struct User {
     pub hashed_password: String,
 }
 
-#[derive(Serialize, Deserialize, Queryable, Identifiable, Selectable, Insertable, Clone)]
+#[derive(
+    Serialize, ToSchema, Deserialize, Queryable, Identifiable, Selectable, Insertable, Clone,
+)]
 #[diesel(primary_key(uid))]
 pub struct Group {
     pub uid: String,
     pub group_name: String,
+    pub created_by: String,
 }
 
-#[derive(Insertable, Serialize, Deserialize, Queryable, Identifiable, Associations)]
+#[derive(Insertable, ToSchema, Serialize, Deserialize, Queryable, Identifiable, Associations)]
 #[diesel(belongs_to(Group))]
 #[diesel(belongs_to(User))]
 #[diesel(primary_key(uid))]
@@ -29,6 +33,7 @@ pub struct GroupMembership {
 
 #[derive(
     Insertable,
+    ToSchema,
     Deserialize,
     Clone,
     Queryable,
@@ -50,7 +55,9 @@ pub struct Transaction {
     pub created_at: Option<String>,
 }
 
-#[derive(Insertable, Clone, Serialize, Deserialize, Queryable, Identifiable, Associations)]
+#[derive(
+    Insertable, ToSchema, Clone, Serialize, Deserialize, Queryable, Identifiable, Associations,
+)]
 #[diesel(belongs_to(User))]
 #[diesel(belongs_to(Transaction))]
 #[diesel(primary_key(uid))]

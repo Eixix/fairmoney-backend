@@ -12,6 +12,7 @@ diesel::table! {
     groups (uid) {
         uid -> Text,
         group_name -> Text,
+        created_by -> Text,
     }
 }
 
@@ -46,6 +47,7 @@ diesel::table! {
 
 diesel::joinable!(group_memberships -> groups (group_id));
 diesel::joinable!(group_memberships -> users (user_id));
+diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(transaction_shares -> transactions (transaction_id));
 diesel::joinable!(transaction_shares -> users (user_id));
 diesel::joinable!(transactions -> groups (group_id));

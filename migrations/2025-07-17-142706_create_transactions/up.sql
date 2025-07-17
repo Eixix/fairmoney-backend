@@ -5,7 +5,7 @@ CREATE TABLE transactions
     amount           INTEGER NOT NULL, -- amount in cents
     group_id         TEXT    NOT NULL,
     created_by       TEXT    NOT NULL,
-    created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
+    created_at       TEXT,
 
     FOREIGN KEY (group_id) REFERENCES groups (uid) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users (uid) ON DELETE SET NULL
