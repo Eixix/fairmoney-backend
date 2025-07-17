@@ -1,23 +1,15 @@
 use crate::models::User;
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use diesel::{Insertable, RunQueryDsl};
-
-#[derive(Debug, Insertable, Queryable, Selectable)]
-#[diesel(table_name = crate::schema::users)]
-struct NewUser<'a> {
-    uid: &'a str,
-    username: &'a str,
-    hashed_password: &'a str,
-}
+use diesel::RunQueryDsl;
 
 pub fn insert_new_user(connection: &mut SqliteConnection, user: User) -> QueryResult<User> {
     use crate::schema::users::dsl::*;
 
-    let new_user = NewUser {
-        uid: &user.uid,
-        username: &user.username,
-        hashed_password: &user.hashed_password,
+    let new_user = User {
+        uid: user.uid,
+        username: user.username,
+        hashed_password: user.hashed_password,
     };
 
     diesel::insert_into(users)
@@ -25,12 +17,7 @@ pub fn insert_new_user(connection: &mut SqliteConnection, user: User) -> QueryRe
         .execute(connection)
         .expect("Error inserting user");
 
-    let user: User = users
-        .filter(uid.eq(&user.uid))
-        .first::<User>(connection)
-        .expect("Error loading inserted user");
-
-    Ok(user)
+    Ok(new_user)
 }
 
 pub fn check_if_user_exists(
