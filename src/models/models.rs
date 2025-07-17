@@ -2,23 +2,6 @@ use crate::schema::{group_memberships, groups, transaction_shares, transactions,
 use diesel::{Associations, Identifiable, Insertable, Queryable, Selectable};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
-pub struct Claims {
-    pub sub: String,
-    pub exp: usize,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct LoginAnswer {
-    pub token: String,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct RequestRegisterUser {
-    pub username: String,
-    pub password: String,
-}
-
 #[derive(Serialize, Clone, Debug, Queryable, Identifiable, Selectable, Insertable)]
 #[diesel(primary_key(uid))]
 pub struct User {
@@ -27,7 +10,7 @@ pub struct User {
     pub hashed_password: String,
 }
 
-#[derive(Serialize, Queryable, Identifiable, Selectable)]
+#[derive(Serialize, Deserialize, Queryable, Identifiable, Selectable, Insertable, Clone)]
 #[diesel(primary_key(uid))]
 pub struct Group {
     pub uid: String,
@@ -44,7 +27,18 @@ pub struct GroupMembership {
     pub group_id: String,
 }
 
-#[derive(Queryable, Selectable, Identifiable, Associations, Debug, PartialEq)]
+#[derive(
+    Insertable,
+    Deserialize,
+    Clone,
+    Queryable,
+    Selectable,
+    Identifiable,
+    Serialize,
+    Associations,
+    Debug,
+    PartialEq,
+)]
 #[diesel(belongs_to(Group))]
 #[diesel(primary_key(uid))]
 pub struct Transaction {
@@ -52,11 +46,11 @@ pub struct Transaction {
     pub transaction_name: String,
     pub amount: i32,
     pub group_id: String,
-    pub created_by: usize,
-    pub created_at: usize,
+    pub created_by: String,
+    pub created_at: Option<String>,
 }
 
-#[derive(Insertable, Serialize, Deserialize, Queryable, Identifiable, Associations)]
+#[derive(Insertable, Clone, Serialize, Deserialize, Queryable, Identifiable, Associations)]
 #[diesel(belongs_to(User))]
 #[diesel(belongs_to(Transaction))]
 #[diesel(primary_key(uid))]
