@@ -194,11 +194,11 @@ pub async fn create_group(
 }
 
 #[utoipa::path(
-    put,
+    post,
     path = "/group",
-    request_body = NewGroup,
+    request_body = Group,
     responses(
-        (status = 200, description = "Group created successfully", body = Group),
+        (status = 200, description = "Group updated successfully", body = Group),
         (status = 500, description = "Internal server error")
     ),
     tag = "Groups",
