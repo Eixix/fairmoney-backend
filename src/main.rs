@@ -28,6 +28,7 @@ async fn main() -> std::io::Result<()> {
     let pool = r2d2::Pool::builder()
         .build(manager)
         .expect("database URL should be valid path to SQLite DB file");
+    println!("Running server on http://localhost:8080");
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(pool.clone()))
